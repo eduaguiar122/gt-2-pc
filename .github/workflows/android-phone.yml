@@ -1,0 +1,72 @@
+name: Android phone APK
+
+# The flat-screen phone build (android-phone/, cmake -DGT2_ANDROID_PHONE=ON). Independent of release.yml and the
+# Quest APK. The debug keystore is cached so that each new APK installs over the previous one (keeping the installed
+# disc and the saves); the cache expires after 7 days without a run, and the next APK then needs a reinstall.
+on:
+  workflow_dispatch:
+  push:
+    branches: [android-phone]
+    paths:
+      - 'android-phone/**'
+      - 'src/**'
+      - 'tools/gt2game/**'
+      - 'cmake/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/android-phone.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-phone-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  phone:
+    name: Android arm64 (phone)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+
+      - name: Install Android NDK, CMake and glslc
+        run: |
+          bash scripts/apt-install.sh glslc
+          yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses >/dev/null || true
+          sdkmanager --sdk_root="$ANDROID_HOME" --install \
+            "platforms;android-35" "build-tools;35.0.0" \
+            "ndk;27.2.12479018" "cmake;3.22.1"
+
+      - name: Restore the debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: gt2-phone-debug-keystore-v1
+
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.13'
+
+      - name: Build APK
+        run: |
+          set -euo pipefail
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > android-phone/local.properties
+          gradle -p android-phone --no-daemon --no-problems-report assembleDebug
+          version="$(sed -n "s/.*versionName '\([^']*\)'.*/\1/p" android-phone/app/build.gradle | head -n 1)"
+          mkdir -p phone-apk
+          cp android-phone/app/build/outputs/apk/debug/app-debug.apk "phone-apk/GT2-Phone-${version}-${GITHUB_SHA::7}-debug.apk"
+          (cd phone-apk && sha256sum *.apk > SHA256SUMS.txt)
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gt2-phone-apk
+          path: phone-apk/
+          if-no-files-found: error
+          compression-level: 0

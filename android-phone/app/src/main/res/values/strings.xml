@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GT2</string>
+    <string name="import_short">Import disc</string>
+    <string name="import_long">Import a game disc</string>
+    <string name="import_title">Gran Turismo 2: install a disc</string>
+    <string name="import_help">Select your own disc image: a complete .bin with 2352-byte sectors (the file next to the .cue). Arcade, Simulation and the combined disc are supported. The image is copied into the app; game data is never included or downloaded.\n\nPlay with a Bluetooth or USB controller. Start + Select (or holding Start) opens the settings.</string>
+    <string name="import_none">No disc installed yet.</string>
+    <string name="import_installed">Installed:\n%1$s</string>
+    <string name="import_pick">Select disc image (.bin)</string>
+    <string name="import_play">Play</string>
+    <string name="import_save_log">Save diagnostic log…</string>
+    <string name="import_copying">Copying the disc image…</string>
+    <string name="import_installing">Checking and installing the disc…</string>
+    <string name="import_done">Installed: %1$s. Tap Play, or import another disc.</string>
+    <string name="import_failed">Not installed: %1$s</string>
+    <string name="import_cue">That is the .cue sheet. Select the .bin file it points to.</string>
+    <string name="import_not_raw">This is not a raw 2352-byte BIN. ISO files lose the XA music and movies; dump or convert the disc to BIN/CUE.</string>
+    <string name="import_compressed">Compressed images (CHD, PBP, ECM, ZIP, 7z) are not supported. Extract or convert it to BIN/CUE first.</string>
+    <string name="import_space">Not enough free storage. About %1$d MB are needed.</string>
+    <string name="import_log_saved">Log saved.</string>
+    <string name="disc_arcade">Arcade disc</string>
+    <string name="disc_simulation">Simulation disc</string>
+    <string name="disc_combined">Combined disc (Arcade + Simulation)</string>
+</resources>

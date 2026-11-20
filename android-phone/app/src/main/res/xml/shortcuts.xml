@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the app icon: add another disc (for example the Simulation disc after the Arcade disc). -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="import_disc"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher"
+        android:shortcutShortLabel="@string/import_short"
+        android:shortcutLongLabel="@string/import_long">
+        <intent
+            android:action="io.github.gt2pc.phone.IMPORT_DISC"
+            android:targetPackage="io.github.gt2pc.phone"
+            android:targetClass="io.github.gt2pc.phone.DiscImportActivity" />
+    </shortcut>
+</shortcuts>

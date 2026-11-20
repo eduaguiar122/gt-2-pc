@@ -95,6 +95,11 @@ desktop.ini
 /android/app/build/
 /android/app/.cxx/
 /android/local.properties
+/android-phone/.gradle/
+/android-phone/build/
+/android-phone/app/build/
+/android-phone/app/.cxx/
+/android-phone/local.properties
 
 # Private development metadata and release signing identities
 /CLAUDE.md

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- An original, generic icon: a checkered finish band over a road with a centre line. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path android:fillColor="#1B1F27" android:pathData="M8,0H40A8,8 0,0 1,48 8V40A8,8 0,0 1,40 48H8A8,8 0,0 1,0 40V8A8,8 0,0 1,8 0Z" />
+    <path android:fillColor="#3A4150" android:pathData="M18,20H30L40,48H8Z" />
+    <path android:fillColor="#F2C230" android:pathData="M23,24H25L25.8,30H22.2Z M21.9,34H26.1L27,42H21Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M6,8H12V14H6Z M18,8H24V14H18Z M30,8H36V14H30Z M12,14H18V20H12Z M24,14H30V20H24Z M36,14H42V20H36Z" />
+    <path android:fillColor="#0E1014" android:pathData="M12,8H18V14H12Z M24,8H30V14H24Z M36,8H42V14H36Z M6,14H12V20H6Z M18,14H24V20H18Z M30,14H36V20H30Z" />
+</vector>

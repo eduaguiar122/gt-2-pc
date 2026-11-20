@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The flat-screen phone build (cmake -DGT2_ANDROID_PHONE=ON). The Quest build is android/. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-feature android:name="android.hardware.vulkan.version" android:version="0x403000" android:required="true"/>
+    <uses-feature android:name="android.hardware.gamepad" android:required="false"/>
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
+    <application
+        android:allowBackup="false"
+        android:appCategory="game"
+        android:hasCode="true"
+        android:icon="@drawable/ic_launcher"
+        android:isGame="true"
+        android:label="@string/app_name"
+        android:resizeableActivity="false">
+        <activity
+            android:name=".DiscImportActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/GT2Import">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="io.github.gt2pc.phone.IMPORT_DISC"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts"/>
+        </activity>
+        <!-- Its own process: the game's native state starts fresh on every launch (PhoneGameActivity.onDestroy). A
+             controller connecting changes keyboard/navigation: handled in place, never a restart of the game. -->
+        <activity
+            android:name=".PhoneGameActivity"
+            android:configChanges="orientation|keyboardHidden|keyboard|navigation|touchscreen|screenSize|smallestScreenSize|screenLayout|uiMode|density|locale|layoutDirection|fontScale|colorMode"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:process=":game"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/GT2Game">
+            <meta-data android:name="android.app.lib_name" android:value="gt2game"/>
+        </activity>
+    </application>
+</manifest>

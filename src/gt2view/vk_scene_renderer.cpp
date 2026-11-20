@@ -274,8 +274,11 @@ void VkSceneRenderer::DestroyBuffer(Buffer& b) {
 }
 
 void VkSceneRenderer::CreateSwapchain() {
+    if (!surface_) return; // Android: the window is gone until the activity returns (AttachSurface)
     VkSurfaceCapabilitiesKHR caps;
-    Check(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_, surface_, &caps), "surface capabilities");
+    const VkResult capsResult = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_, surface_, &caps);
+    if (capsResult == VK_ERROR_SURFACE_LOST_KHR) return; // as minimized: the window backend replaces the surface
+    Check(capsResult, "surface capabilities");
     extent_ = caps.currentExtent;
     extentFromWindow_ = extent_.width == 0xFFFFFFFFu;
     if (extentFromWindow_) context_.WindowExtent(extent_);
@@ -304,8 +307,16 @@ void VkSceneRenderer::CreateSwapchain() {
     // The scene target is blitted into the swapchain image (RenderOptions); harmless for the direct path.
     if (caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT) sci.imageUsage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     sci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    sci.preTransform = caps.currentTransform;
+    // The image is never rendered rotated. Android reports the display's rotation as currentTransform (a landscape
+    // game on a portrait-native phone is ROTATE_90/270) while currentExtent already has the landscape size: IDENTITY
+    // lets the compositor rotate. Desktop surfaces report IDENTITY anyway.
+    sci.preTransform = (caps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) ? VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR
+                                                                                          : caps.currentTransform;
+    // Many Android drivers offer only INHERIT; OPAQUE stays the first choice wherever it exists.
     sci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    for (VkCompositeAlphaFlagBitsKHR alpha : {VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR, VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
+                                              VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR})
+        if (caps.supportedCompositeAlpha & alpha) { sci.compositeAlpha = alpha; break; }
     // vsync: FIFO (the display's refresh); off: IMMEDIATE (no wait for the compositor; may tear) or MAILBOX.
     presentMode_ = VK_PRESENT_MODE_FIFO_KHR;
     if (!options_.vsync) {
@@ -518,6 +529,19 @@ void VkSceneRenderer::SetOptions(const RenderOptions& options) {
     if (swapchain_ || offscreen_) CreateSceneTargets();
     // The stereo target carries its own MSAA images and pipelines: rebuild them when the sample count changed.
     if (stereoReady_ && ClampSamples(options_.msaa) != stereoSamples_) CreateStereoTarget(stereoExtent_, stereoFormat_, stereoMultiview_);
+}
+
+void VkSceneRenderer::DetachSurface() {
+    if (offscreen_) return;
+    vkDeviceWaitIdle(device_);
+    DestroySwapchain();
+    surface_ = VK_NULL_HANDLE;
+}
+
+void VkSceneRenderer::AttachSurface(VkSurfaceKHR surface) {
+    if (offscreen_) return;
+    if (swapchain_) DetachSurface();
+    surface_ = surface; // the next Draw creates the swapchain (Draw: !swapchain_)
 }
 
 void VkSceneRenderer::DestroySwapchain() {
@@ -973,7 +997,7 @@ void VkSceneRenderer::Draw(const std::vector<DrawItem>& items, const std::string
     uint32_t imageIndex = 0;
     if (!offscreen_) {
         VkResult acq = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, acquired_, VK_NULL_HANDLE, &imageIndex);
-        if (acq == VK_ERROR_OUT_OF_DATE_KHR) {
+        if (acq == VK_ERROR_OUT_OF_DATE_KHR || acq == VK_ERROR_SURFACE_LOST_KHR) {
             vkDeviceWaitIdle(device_);
             DestroySwapchain();
             return;
@@ -1716,7 +1740,8 @@ void VkSceneRenderer::FinishFrame(uint32_t imageIndex, const std::string& screen
                          (drawable.width != extent_.width || drawable.height != extent_.height);
     // SUBOPTIMAL is still a successful presentation. Cocoa can report it while
     // entering fullscreen without changing the drawable; avoid rebuilding every frame.
-    if (pres == VK_ERROR_OUT_OF_DATE_KHR || resized) {
+    // SURFACE_LOST: Android abandoned the window before the backend detached it; the backend attaches the new one.
+    if (pres == VK_ERROR_OUT_OF_DATE_KHR || pres == VK_ERROR_SURFACE_LOST_KHR || resized) {
         vkDeviceWaitIdle(device_);
         DestroySwapchain();
     } else if (pres != VK_SUBOPTIMAL_KHR) {

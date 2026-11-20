@@ -82,6 +82,11 @@ public:
     VkImage OffscreenImage() const { return images_.empty() ? VK_NULL_HANDLE : images_[0]; }
     VkExtent2D Extent() const { return extent_; }
     void WaitFrame();
+    // Android phones: the system destroys the window while the activity is in the background. DetachSurface waits
+    // for the GPU, drops the swapchain and forgets the surface (Draw then draws nothing); AttachSurface hands the
+    // renderer the surface of the new window, and the next Draw creates the swapchain on it.
+    void DetachSurface();
+    void AttachSurface(VkSurfaceKHR surface);
     void SetFoveation(int level);
     int Foveation() const { return rateImage_.image ? foveation_ : 0; }
     void EnableDecodedTextures(bool enabled) { decodedEnabled_ = enabled; }

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="import_short">Importar disco</string>
+    <string name="import_long">Importar um disco do jogo</string>
+    <string name="import_title">Gran Turismo 2: instalar disco</string>
+    <string name="import_help">Selecione a sua própria imagem do disco: um .bin completo com setores de 2352 bytes (o arquivo ao lado do .cue). Arcade, Simulation e o disco combinado são aceitos. A imagem é copiada para o app; nenhum dado do jogo vem junto ou é baixado.\n\nJogue com controle Bluetooth ou USB. Start + Select (ou segurar Start) abre as configurações.</string>
+    <string name="import_none">Nenhum disco instalado.</string>
+    <string name="import_installed">Instalados:\n%1$s</string>
+    <string name="import_pick">Selecionar imagem do disco (.bin)</string>
+    <string name="import_play">Jogar</string>
+    <string name="import_save_log">Salvar log de diagnóstico…</string>
+    <string name="import_copying">Copiando a imagem do disco…</string>
+    <string name="import_installing">Verificando e instalando o disco…</string>
+    <string name="import_done">Instalado: %1$s. Toque em Jogar ou importe outro disco.</string>
+    <string name="import_failed">Não instalado: %1$s</string>
+    <string name="import_cue">Esse é o arquivo .cue. Selecione o .bin a que ele se refere.</string>
+    <string name="import_not_raw">Não é um BIN bruto de 2352 bytes. Arquivos ISO perdem as músicas XA e os vídeos; extraia ou converta o disco para BIN/CUE.</string>
+    <string name="import_compressed">Imagens compactadas (CHD, PBP, ECM, ZIP, 7z) não são aceitas. Extraia ou converta para BIN/CUE antes.</string>
+    <string name="import_space">Espaço livre insuficiente. São necessários cerca de %1$d MB.</string>
+    <string name="import_log_saved">Log salvo.</string>
+    <string name="disc_arcade">Disco Arcade</string>
+    <string name="disc_simulation">Disco Simulation</string>
+    <string name="disc_combined">Disco combinado (Arcade + Simulation)</string>
+</resources>

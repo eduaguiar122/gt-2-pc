@@ -56,6 +56,13 @@ public:
     // The window's client size, for a surface that does not report its own extent. False without a window.
     bool WindowExtent(VkExtent2D& extent) const;
 
+    // Android phones (vk_context_android.cpp only): the system destroys the ANativeWindow while the activity is in
+    // the background and gives a new one when it returns. ReleaseWindowSurface destroys the surface (the renderer must
+    // have detached it first, VkSceneRenderer::DetachSurface); AttachWindowSurface creates the surface of the new
+    // window on the same instance and device.
+    void ReleaseWindowSurface();
+    void AttachWindowSurface(void* window);
+
 private:
     [[maybe_unused]] void* window_ = nullptr; // HWND on Windows
     VkInstance instance_ = VK_NULL_HANDLE;

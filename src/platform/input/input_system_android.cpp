@@ -3,6 +3,7 @@
 
 #include <android/log.h>
 
+#include <algorithm>
 #include <atomic>
 #include <mutex>
 #include <cmath>
@@ -85,8 +86,10 @@ public:
         out.buttons = buttons;
         out.analog = {StickByte(g_rightX.load()), StickByte(g_rightY.load()), StickByte(g_leftX.load()), StickByte(g_leftY.load())};
         out.pressure = true;
-        out.pressureL2 = TriggerByte(lt);
-        out.pressureR2 = TriggerByte(rt);
+        // Pads whose L2/R2 are only buttons (KEYCODE_BUTTON_L2/R2, no trigger axis) press them fully.
+        const uint16_t keyTriggers = uint16_t(g_buttons.load());
+        out.pressureL2 = std::max<uint8_t>(TriggerByte(lt), (keyTriggers & ps1::kL2) ? 255 : 0);
+        out.pressureR2 = std::max<uint8_t>(TriggerByte(rt), (keyTriggers & ps1::kR2) ? 255 : 0);
         return true;
     }
     void SetMotors(uint8_t, uint8_t, int) override {} // no rumble path to an Android gamepad from native code
