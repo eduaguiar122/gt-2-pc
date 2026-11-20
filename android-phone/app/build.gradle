@@ -14,6 +14,18 @@ android {
         externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_static', '-DBUILD_TESTING=OFF', '-DGT2_ANDROID_PHONE=ON'; targets 'gt2game' } }
     }
     externalNativeBuild { cmake { path file('../../CMakeLists.txt'); version '3.22.1' } }
+    // CI (android-phone.yml) signs test builds with one kept key, so that each APK installs over the previous one.
+    signingConfigs {
+        debug {
+            def keystore = System.getenv('GT2_DEBUG_KEYSTORE')
+            if (keystore) {
+                storeFile file(keystore)
+                storePassword 'android'
+                keyAlias 'androiddebugkey'
+                keyPassword 'android'
+            }
+        }
+    }
     buildTypes {
         debug {
             externalNativeBuild { cmake { arguments '-DCMAKE_BUILD_TYPE=RelWithDebInfo' } }

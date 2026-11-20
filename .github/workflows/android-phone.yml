@@ -1,8 +1,9 @@
 name: Android phone APK
 
 # The flat-screen phone build (android-phone/, cmake -DGT2_ANDROID_PHONE=ON). Independent of release.yml and the
-# Quest APK. The debug keystore is cached so that each new APK installs over the previous one (keeping the installed
-# disc and the saves); the cache expires after 7 days without a run, and the next APK then needs a reinstall.
+# Quest APK. The debug signing key is created once and cached (GT2_DEBUG_KEYSTORE, app/build.gradle) so that each new
+# APK installs over the previous one, keeping the installed disc and the saves; the cache expires after 7 days without
+# a run, and the next APK then needs a reinstall.
 on:
   workflow_dispatch:
   push:
@@ -47,8 +48,18 @@ jobs:
       - name: Restore the debug signing key
         uses: actions/cache@v4
         with:
-          path: ~/.android/debug.keystore
-          key: gt2-phone-debug-keystore-v1
+          path: ~/gt2-keystore
+          key: gt2-phone-debug-keystore-v2
+
+      - name: Create the debug signing key (first run, or after the cache expired)
+        run: |
+          set -euo pipefail
+          mkdir -p ~/gt2-keystore
+          if [ ! -f ~/gt2-keystore/debug.keystore ]; then
+            keytool -genkeypair -keystore ~/gt2-keystore/debug.keystore -storepass android -keypass android \
+              -alias androiddebugkey -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
+          fi
+          echo "GT2_DEBUG_KEYSTORE=$HOME/gt2-keystore/debug.keystore" >> "$GITHUB_ENV"
 
       - uses: gradle/actions/setup-gradle@v6
         with:
