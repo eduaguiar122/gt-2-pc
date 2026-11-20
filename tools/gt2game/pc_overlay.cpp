@@ -15,6 +15,7 @@
 #include "game/career/cheats.h"
 #include "game/career/campaign_storage.h"
 #include "campaign_confirmation.h"
+#include "ui_text.h"
 #include <chrono>
 #include <cstring>
 #include <algorithm>
@@ -82,7 +83,7 @@ void UploadFont(gt2view::SceneRenderer& renderer) {
     HDC dc = CreateCompatibleDC(nullptr);
     BITMAPINFO info{};
     info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    info.bmiHeader.biWidth = 256; info.bmiHeader.biHeight = -144;
+    info.bmiHeader.biWidth = 512; info.bmiHeader.biHeight = -144; // ASCII at x < 256, Latin-1 0xA0..0xFF beside it
     info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32;
     void* pixels = nullptr;
     HBITMAP bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
@@ -93,14 +94,15 @@ void UploadFont(gt2view::SceneRenderer& renderer) {
         throw std::runtime_error("cannot create overlay font");
     }
     auto oldBitmap = SelectObject(dc, bitmap), oldFont = SelectObject(dc, font);
-    PatBlt(dc, 0, 0, 256, 144, BLACKNESS);
+    PatBlt(dc, 0, 0, 512, 144, BLACKNESS);
     SetTextColor(dc, RGB(255, 255, 255)); SetBkColor(dc, RGB(0, 0, 0));
     for (int c = 32; c < 128; ++c) { const char ch = char(c); TextOutA(dc, ((c - 32) % 16) * 16, ((c - 32) / 16) * 24, &ch, 1); }
+    for (int c = 0xa0; c < 0x100; ++c) { const char ch = char(c); TextOutA(dc, 256 + ((c - 0xa0) % 16) * 16, ((c - 0xa0) / 16) * 24, &ch, 1); }
     GdiFlush();
     std::vector<uint16_t> atlas(1024 * 144);
     const auto* rgba = static_cast<const uint32_t*>(pixels);
-    for (int y = 0; y < 144; ++y) for (int x = 0; x < 256; ++x) {
-        const uint16_t v = uint16_t((rgba[y * 256 + x] & 255) >> 3);
+    for (int y = 0; y < 144; ++y) for (int x = 0; x < 512; ++x) {
+        const uint16_t v = uint16_t((rgba[y * 512 + x] & 255) >> 3);
         atlas[size_t(y) * 1024 + size_t(x)] = uint16_t(v | (v << 5) | (v << 10));
     }
     SelectObject(dc, oldFont); SelectObject(dc, oldBitmap); DeleteObject(font); DeleteObject(bitmap); DeleteDC(dc);
@@ -139,6 +141,49 @@ void UploadFont(gt2view::SceneRenderer& renderer) {
             for (int dy = 0; dy < 2; ++dy) for (int dx = 0; dx < 2; ++dx)
                 atlas[size_t(((c - 32) / 16) * 24 + y * 2 + 4 + dy) * 1024 +
                       size_t(((c - 32) % 16) * 16 + x * 2 + 1 + dx)] = 0x7fff;
+        }
+    }
+    // Latin-1 letters 0xC0..0xFF (ui_text.cpp's Portuguese) in a second 16 x 6 grid at x 256: the base letter as above
+    // and its accent in the cell's top rows at full atlas resolution (a cedilla below). Lowercase draws as uppercase.
+    enum : uint8_t { kNoMark, kGrave, kAcute, kCircumflex, kTilde, kDiaeresis, kRing, kCedilla };
+    static constexpr char kBase[32] = {'A','A','A','A','A','A',0,'C','E','E','E','E','I','I','I','I',
+                                       0,'N','O','O','O','O','O',0,0,'U','U','U','U','Y',0,0};
+    static constexpr uint8_t kMark[32] = {kGrave,kAcute,kCircumflex,kTilde,kDiaeresis,kRing,kNoMark,kCedilla,
+                                          kGrave,kAcute,kCircumflex,kDiaeresis,kGrave,kAcute,kCircumflex,kDiaeresis,
+                                          kNoMark,kTilde,kGrave,kAcute,kCircumflex,kTilde,kDiaeresis,kNoMark,
+                                          kNoMark,kGrave,kAcute,kCircumflex,kDiaeresis,kAcute,kNoMark,kNoMark};
+    // Accent strokes: {atlas row in the cell, first column, last column}.
+    struct Stroke { int8_t row, from, to; };
+    static constexpr Stroke kGraveStrokes[] = {{0, 3, 4}, {1, 4, 5}, {2, 5, 6}};
+    static constexpr Stroke kAcuteStrokes[] = {{0, 7, 8}, {1, 6, 7}, {2, 5, 6}};
+    static constexpr Stroke kCircumflexStrokes[] = {{0, 5, 6}, {1, 4, 4}, {1, 7, 7}, {2, 3, 3}, {2, 8, 8}};
+    static constexpr Stroke kTildeStrokes[] = {{1, 2, 3}, {0, 4, 5}, {1, 6, 7}, {0, 8, 9}};
+    static constexpr Stroke kDiaeresisStrokes[] = {{1, 3, 4}, {2, 3, 4}, {1, 7, 8}, {2, 7, 8}};
+    static constexpr Stroke kRingStrokes[] = {{0, 5, 6}, {1, 4, 4}, {1, 7, 7}, {2, 5, 6}};
+    static constexpr Stroke kCedillaStrokes[] = {{19, 5, 6}, {20, 6, 7}, {21, 4, 6}};
+    for (int c = 0xc0; c < 0x100; ++c) {
+        const int k = (c - 0xc0) & 31;
+        if (!kBase[k]) continue;
+        const int local = c - 0xa0, cellX = 256 + (local % 16) * 16, cellY = (local / 16) * 24;
+        const int index = kBase[k] - 'A' + 10;
+        for (int x = 0; x < 5; ++x) for (int y = 0; y < 7; ++y) {
+            if (!((glyphs[index][x] >> y) & 1)) continue;
+            for (int dy = 0; dy < 2; ++dy) for (int dx = 0; dx < 2; ++dx)
+                atlas[size_t(cellY + y * 2 + 4 + dy) * 1024 + size_t(cellX + x * 2 + 1 + dx)] = 0x7fff;
+        }
+        auto draw = [&](const Stroke* strokes, size_t count) {
+            for (size_t i = 0; i < count; ++i)
+                for (int x = strokes[i].from; x <= strokes[i].to; ++x) atlas[size_t(cellY + strokes[i].row) * 1024 + size_t(cellX + x)] = 0x7fff;
+        };
+        switch (kMark[k]) {
+        case kGrave: draw(kGraveStrokes, std::size(kGraveStrokes)); break;
+        case kAcute: draw(kAcuteStrokes, std::size(kAcuteStrokes)); break;
+        case kCircumflex: draw(kCircumflexStrokes, std::size(kCircumflexStrokes)); break;
+        case kTilde: draw(kTildeStrokes, std::size(kTildeStrokes)); break;
+        case kDiaeresis: draw(kDiaeresisStrokes, std::size(kDiaeresisStrokes)); break;
+        case kRing: draw(kRingStrokes, std::size(kRingStrokes)); break;
+        case kCedilla: draw(kCedillaStrokes, std::size(kCedillaStrokes)); break;
+        default: break;
         }
     }
     renderer.UploadVram(fontRow, 144, atlas.data());
@@ -345,15 +390,19 @@ struct NativeCanvas {
             v.color[2] = float(color & 255) / 255;
             if (glyph >= 0) {
                 v.flags = gt2view::kTextured | (2u << 8); v.page = fontRow << 16;
-                v.texel[0] = float(glyph % 16 * 16 + cx[k] * 16);
-                v.texel[1] = float(glyph / 16 * 24 + cy[k] * 24);
+                // Glyphs 0..95: ASCII 32..127; 96..191: Latin-1 0xA0..0xFF in the grid beside them (x + 256).
+                const int block = glyph / 96, local = glyph % 96;
+                v.texel[0] = float(block * 256 + local % 16 * 16 + cx[k] * 16);
+                v.texel[1] = float(local / 16 * 24 + cy[k] * 24);
             }
             vertices.push_back(v);
         }
     }
+    // `value` in the menus' language (ui_text.h); Latin-1 letters use the font's extended glyphs.
     void Text(float x, float y, const std::string& value, uint32_t color = 0xe2e8f0, float scale = 1) {
-        for (unsigned char c : value) {
+        for (unsigned char c : Tr(value)) {
             if (c >= 32 && c < 128) Quad(x, y, 16 * scale, 24 * scale, color, int(c) - 32);
+            else if (c >= 0xa0) Quad(x, y, 16 * scale, 24 * scale, color, 96 + int(c) - 0xa0);
             x += 12 * scale;
         }
     }
@@ -418,9 +467,9 @@ void Panel(GameWindow& window, const std::string& title, const std::vector<std::
                           : rows.size() > 10 ? 31.f : rows.size() > 9 ? 35.f : 40.f;
         const float y = 112 + float(i) * step;
         if (int(i) == selected) canvas.Quad(44, y - 5, 711, step < 31.f ? step - 2.f : 34.f, 0x234b68);
-        canvas.Text(56, y, rows[i].substr(0, 57), int(i) == selected ? 0x8ed8f8 : 0xe2e8f0);
+        canvas.Text(56, y, Tr(rows[i]).substr(0, 57), int(i) == selected ? 0x8ed8f8 : 0xe2e8f0); // translated, then cut
     }
-    canvas.Text(54, 479, status.substr(0, 57), 0xa8b7c8);
+    canvas.Text(54, 479, Tr(status).substr(0, 57), 0xa8b7c8);
     canvas.Text(54, 520, footer, 0xffffff);
     std::vector<gt2view::DrawItem> items; canvas.Append(window.Renderer(), items);
     window.EndFrame(items);
@@ -837,7 +886,7 @@ void WheelShifterGuide(GameWindow& w) {
         c.Text(383, 296, "N", 0xffffff);
         c.Text(54, 430, "Follow the gear labels on your shifter", 0xa8b7c8, .9f);
         const std::string status = !d ? "Reconnect the shifter" : !message.empty() ? message : setup.Error();
-        c.Text(54, 479, status.substr(0, 57), 0xa8b7c8);
+        c.Text(54, 479, Tr(status).substr(0, 57), 0xa8b7c8);
         c.Text(54, 520, "Confirm: start / save   Back: cancel", 0xffffff);
         std::vector<gt2view::DrawItem> items; c.Append(w.Renderer(), items); w.EndFrame(items);
     }
@@ -1036,7 +1085,7 @@ void ShowWheelSettings(GameWindow& w) {
             if (i == Steering) { c.Quad(x + 102, 433, 2, 21, 0x728ca0); c.Quad(x + 100 + value * 100, 436, 5, 15, 0x42b6f5); }
             else c.Quad(x, 437, value * 204, 13, 0x42b6f5);
         }
-        c.Text(54, 479, (message.starts_with("Not saved") ? message : rig.Status()).substr(0, 57), 0xa8b7c8);
+        c.Text(54, 479, Tr(message.starts_with("Not saved") ? message : rig.Status()).substr(0, 57), 0xa8b7c8);
         c.Text(54, 520, VrMode() ? "Up/down: row  Triggers: value  Confirm  Back" : "Up/down: row  Left/right: value  Confirm  Back", 0xffffff);
         std::vector<gt2view::DrawItem> items; c.Append(w.Renderer(), items); w.EndFrame(items);
     }

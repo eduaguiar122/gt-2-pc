@@ -5,6 +5,7 @@
 // looper thread hands the window and its loss to that backend (phone_host.h), and a disc is installed inside the app
 // (DiscImportActivity, disc_import.cpp) instead of being pushed from a PC.
 #include <android_native_app_glue.h>
+#include <android/configuration.h>
 #include <android/input.h>
 #include <android/log.h>
 #include <jni.h>
@@ -25,6 +26,7 @@
 #include "game_window.h"
 #include "pc_overlay.h"
 #include "phone_host.h"
+#include "ui_text.h"
 #include "game/shell/shared_vr_settings.h"
 #include "game/shell/title_options.h"
 #include "platform/os/paths.h"
@@ -191,6 +193,10 @@ void android_main(android_app* app) {
     app->onAppCmd = Command;
     app->onInputEvent = Input;
     gt2game::android::SetHost(app->activity->vm, app->activity->clazz);
+    // The port's menus follow the system language (Portuguese or English).
+    char language[3] = {};
+    if (app->config) AConfiguration_getLanguage(app->config, language);
+    gt2game::SetUiLanguage(language);
     gt2::os::SetAndroidDirs(app->activity->externalDataPath, app->activity->internalDataPath);
     std::freopen(gt2::os::LogPath().string().c_str(), "w", stdout);
     std::freopen((gt2::os::SavesDir().parent_path() / "gt2game-error.log").string().c_str(), "w", stderr);
