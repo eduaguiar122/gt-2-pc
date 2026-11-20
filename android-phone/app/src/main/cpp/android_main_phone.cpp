@@ -96,6 +96,9 @@ float Axis(const AInputEvent* event, int32_t axis) { return AMotionEvent_getAxis
 int32_t Input(android_app*, AInputEvent* event) {
     if (AInputEvent_getType(event) == AINPUT_EVENT_TYPE_KEY) {
         int code = AKeyEvent_getKeyCode(event);
+        // Diagnostics for the settings shortcuts (gt2game.log; "Save diagnostic log" in the disc screen).
+        std::printf("phone: key %d %s source 0x%x\n", code, AKeyEvent_getAction(event) == AKEY_EVENT_ACTION_DOWN ? "down" : "up",
+                    unsigned(AInputEvent_getSource(event)));
         // System keys stay with Android: volume (and its overlay), power, assistant.
         if (code == AKEYCODE_VOLUME_UP || code == AKEYCODE_VOLUME_DOWN || code == AKEYCODE_VOLUME_MUTE ||
             code == AKEYCODE_POWER || code == AKEYCODE_HOME || code == AKEYCODE_ASSIST)
@@ -123,7 +126,18 @@ int32_t Input(android_app*, AInputEvent* event) {
                                       Axis(event, AMOTION_EVENT_AXIS_HAT_Y));
         return 1;
     }
-    return 0; // touch: the system's (no touch controls in this version)
+    if (AInputEvent_getType(event) == AINPUT_EVENT_TYPE_MOTION &&
+        (AInputEvent_getSource(event) & AINPUT_SOURCE_TOUCHSCREEN) == AINPUT_SOURCE_TOUCHSCREEN) {
+        // No touch controls in this version; a two-finger tap opens / closes the settings (F10), whatever the pad sends.
+        const int32_t action = AMotionEvent_getAction(event) & AMOTION_EVENT_ACTION_MASK;
+        if (action == AMOTION_EVENT_ACTION_POINTER_DOWN && AMotionEvent_getPointerCount(event) == 2) {
+            std::printf("phone: two-finger tap -> settings\n");
+            gt2game::android::KeyEvent(AKEYCODE_F10, true);
+            gt2game::android::KeyEvent(AKEYCODE_F10, false);
+        }
+        return 1;
+    }
+    return 0;
 }
 
 // The settings' "Import another game disc..." returns here: the Java activity opens the disc picker of Android.

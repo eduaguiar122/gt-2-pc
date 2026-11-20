@@ -191,10 +191,12 @@ bool GameWindow::BeginFrame() {
     pad2Pressed_ = uint16_t(pad2_.buttons & ~pad2Previous_);
     pad2Previous_ = pad2_.buttons;
     if (nativeMenuEnabled_ && !overlayActive_ && (input_.Wheel().Pressed(gt2::input::wheel::Menu) || Pressed(gt2::keys::kF10) || SettingsPressed())) {
+        std::printf("overlay: requested (F10 %d, pad shortcut %d) at field %d\n", int(Pressed(gt2::keys::kF10)), int(SettingsPressed()), field_);
         overlayActive_ = true;
         backend_->SetVrMenuActive(true);
         ShowPcOverlay(*this, VrMode() ? std::vector<gt2view::DrawItem>{} : lastItems_, VrMode() ? 0 : lastScene_);
         overlayActive_ = false;
+        std::printf("overlay: closed at field %d\n", field_);
         backend_->SetVrMenuActive(false);
         BlockMenuInputUntilRelease();
         if (gamePauseRequested_) {
