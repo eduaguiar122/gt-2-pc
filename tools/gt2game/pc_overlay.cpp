@@ -389,10 +389,11 @@ struct NativeCanvas {
             v.color[1] = float((color >> 8) & 255) / 255;
             v.color[2] = float(color & 255) / 255;
             if (glyph >= 0) {
-                v.flags = gt2view::kTextured | (2u << 8); v.page = fontRow << 16;
-                // Glyphs 0..95: ASCII 32..127; 96..191: Latin-1 0xA0..0xFF in the grid beside them (x + 256).
+                // Glyphs 0..95: ASCII 32..127; 96..191: Latin-1 0xA0..0xFF in the grid beside them. A texture page is
+                // 256 texels wide (the shaders clamp u to 255), so the second grid is its own page at x 256.
                 const int block = glyph / 96, local = glyph % 96;
-                v.texel[0] = float(block * 256 + local % 16 * 16 + cx[k] * 16);
+                v.flags = gt2view::kTextured | (2u << 8); v.page = (fontRow << 16) | uint32_t(block * 256);
+                v.texel[0] = float(local % 16 * 16 + cx[k] * 16);
                 v.texel[1] = float(local / 16 * 24 + cy[k] * 24);
             }
             vertices.push_back(v);
