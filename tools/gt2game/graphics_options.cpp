@@ -81,6 +81,9 @@ gt2view::RenderOptions RenderOptionsOf(const gt2::shell::GraphicsSettings& s) {
     gt2::modernCarReflections=s.modernCarReflections;
     gt2::carReflections=s.carReflections;
     o.vsync = s.vsync;
+    o.aspect = uint8_t(std::clamp(s.aspect, 0, 2));
+    o.screenFilter = uint8_t(std::clamp(s.screenFilter, 0, 2));
+    o.sharpen = uint8_t(std::clamp(s.sharpen, 0, 100));
     return o;
 }
 

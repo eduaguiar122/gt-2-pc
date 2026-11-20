@@ -43,6 +43,13 @@ const uint32_t kModelGlassFragSpv[] =
 const uint32_t kUiFragSpv[] =
 #include "scene_ui.frag.inc"
     ;
+// The present stage (aspect ratio, screen filter, sharpening): a full-screen triangle over the finished frame.
+const uint32_t kPresentVertSpv[] =
+#include "present.vert.inc"
+    ;
+const uint32_t kPresentFragSpv[] =
+#include "present.frag.inc"
+    ;
 // The stereo variants of the vertex shader (docs/research/vr_port_plan.md): the eye from gl_ViewIndex (one
 // multiview pass) or from the eye push constant (one pass per array layer).
 const uint32_t kStereoVertSpv[] =
@@ -64,6 +71,19 @@ void Check(VkResult r, const char* what) {
 }
 
 constexpr VkFormat kDepthFormat = VkSceneRenderer::kSceneDepthFormat;
+
+// The present stage's frame: the largest rectangle of the chosen aspect (0 fill, 1 16:9, 2 4:3) inside the window,
+// even-sized so that it centres on whole pixels.
+VkExtent2D FitAspect(VkExtent2D window, uint8_t aspect) {
+    if (aspect == 0 || window.width == 0 || window.height == 0) return window;
+    const double ratio = aspect == 1 ? 16.0 / 9.0 : 4.0 / 3.0;
+    VkExtent2D frame = window;
+    if (double(window.width) / double(window.height) > ratio) frame.width = uint32_t(std::lround(double(window.height) * ratio));
+    else frame.height = uint32_t(std::lround(double(window.width) / ratio));
+    frame.width = std::max(2u, std::min(window.width, frame.width & ~1u));
+    frame.height = std::max(2u, std::min(window.height, frame.height & ~1u));
+    return frame;
+}
 
 void Transition(VkCommandBuffer cmd, VkImage image, VkImageAspectFlags aspect, VkImageLayout from, VkImageLayout to,
                 VkAccessFlags srcAccess, VkAccessFlags dstAccess, VkPipelineStageFlags srcStage,
@@ -196,6 +216,7 @@ VkSceneRenderer::VkSceneRenderer(VkContext& context, VkExtent2D offscreenExtent,
 VkSceneRenderer::~VkSceneRenderer() {
     if (!device_) return;
     vkDeviceWaitIdle(device_);
+    DestroyOutputPipeline();
     DestroyPipelineSet(pipelines_);
     DestroyPipelineSet(modelPipelines_);
     DestroyPipelineSet(modelCullPipelines_);
@@ -301,7 +322,8 @@ void VkSceneRenderer::CreateSwapchain() {
     if (caps.maxImageCount) sci.minImageCount = std::min(sci.minImageCount, caps.maxImageCount);
     sci.imageFormat = chosen.format;
     sci.imageColorSpace = chosen.colorSpace;
-    sci.imageExtent = extent_;
+    swapExtent_ = extent_;
+    sci.imageExtent = swapExtent_;
     sci.imageArrayLayers = 1;
     sci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     // The scene target is blitted into the swapchain image (RenderOptions); harmless for the direct path.
@@ -353,6 +375,24 @@ void VkSceneRenderer::CreateSwapchain() {
         vci.format = colorFormat_;
         vci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         Check(vkCreateImageView(device_, &vci, nullptr, &views_[i]), "vkCreateImageView");
+    }
+
+    // The present stage: from here on extent_ is the frame's size (the chosen aspect inside the window).
+    outputActive_ = OutputWanted();
+    if (outputActive_) {
+        extent_ = FitAspect(swapExtent_, options_.aspect);
+        output_ = CreateImage(extent_, colorFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                              VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+        CreateOutputPipeline();
+        VkDescriptorImageInfo source{outputSampler_, output_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        write.dstSet = outputSet_;
+        write.descriptorCount = 1;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo = &source;
+        vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+        std::printf("graphics: present stage %ux%u in %ux%u (aspect %d, filter %d, sharpen %d%%)\n", extent_.width, extent_.height,
+                    swapExtent_.width, swapExtent_.height, int(options_.aspect), int(options_.screenFilter), int(options_.sharpen));
     }
 
     VkImageCreateInfo ici{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
@@ -520,7 +560,9 @@ void VkSceneRenderer::DestroySceneTargets() {
 void VkSceneRenderer::SetOptions(const RenderOptions& options) {
     if (options == options_) return;
     vkDeviceWaitIdle(device_);
-    const bool presentChanged = options.vsync != options_.vsync && !offscreen_; // no presentation of our own in the XR path
+    const bool presentChanged = !offscreen_ && // no presentation of our own in the XR path
+        (options.vsync != options_.vsync || options.aspect != options_.aspect || options.screenFilter != options_.screenFilter ||
+         options.sharpen != options_.sharpen); // the present stage changes extent_ and the swapchain's targets
     options_ = options;
     if (presentChanged) {
         DestroySwapchain(); // recreated with the new present mode by the next Draw
@@ -544,8 +586,156 @@ void VkSceneRenderer::AttachSurface(VkSurfaceKHR surface) {
     surface_ = surface; // the next Draw creates the swapchain (Draw: !swapchain_)
 }
 
+void VkSceneRenderer::CreateOutputPipeline() {
+    if (outputPipeline_ && outputPipelineFormat_ == colorFormat_) return;
+    DestroyOutputPipeline();
+    VkSamplerCreateInfo sci{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    sci.magFilter = sci.minFilter = VK_FILTER_NEAREST; // present.frag fetches texels 1:1
+    sci.addressModeU = sci.addressModeV = sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sci.maxLod = 0.0f;
+    Check(vkCreateSampler(device_, &sci, nullptr, &outputSampler_), "vkCreateSampler(present)");
+    VkDescriptorSetLayoutBinding binding{};
+    binding.binding = 0;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    binding.descriptorCount = 1;
+    binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkDescriptorSetLayoutCreateInfo dli{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    dli.bindingCount = 1;
+    dli.pBindings = &binding;
+    Check(vkCreateDescriptorSetLayout(device_, &dli, nullptr, &outputSetLayout_), "vkCreateDescriptorSetLayout(present)");
+    VkDescriptorPoolSize poolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1};
+    VkDescriptorPoolCreateInfo dpi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    dpi.maxSets = 1;
+    dpi.poolSizeCount = 1;
+    dpi.pPoolSizes = &poolSize;
+    Check(vkCreateDescriptorPool(device_, &dpi, nullptr, &outputPool_), "vkCreateDescriptorPool(present)");
+    VkDescriptorSetAllocateInfo dai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    dai.descriptorPool = outputPool_;
+    dai.descriptorSetCount = 1;
+    dai.pSetLayouts = &outputSetLayout_;
+    Check(vkAllocateDescriptorSets(device_, &dai, &outputSet_), "vkAllocateDescriptorSets(present)");
+    VkPushConstantRange push{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 32};
+    VkPipelineLayoutCreateInfo pli{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    pli.setLayoutCount = 1;
+    pli.pSetLayouts = &outputSetLayout_;
+    pli.pushConstantRangeCount = 1;
+    pli.pPushConstantRanges = &push;
+    Check(vkCreatePipelineLayout(device_, &pli, nullptr, &outputLayout_), "vkCreatePipelineLayout(present)");
+
+    auto module = [&](const uint32_t* code, size_t bytes) {
+        VkShaderModuleCreateInfo mci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+        mci.codeSize = bytes;
+        mci.pCode = code;
+        VkShaderModule m = VK_NULL_HANDLE;
+        Check(vkCreateShaderModule(device_, &mci, nullptr, &m), "vkCreateShaderModule(present)");
+        return m;
+    };
+    const VkShaderModule vs = module(kPresentVertSpv, sizeof(kPresentVertSpv)), fs = module(kPresentFragSpv, sizeof(kPresentFragSpv));
+    VkPipelineShaderStageCreateInfo stages[2]{{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO}, {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO}};
+    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = vs;
+    stages[0].pName = "main";
+    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = fs;
+    stages[1].pName = "main";
+    VkPipelineVertexInputStateCreateInfo vertexInput{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    VkPipelineInputAssemblyStateCreateInfo assembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+    assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkPipelineViewportStateCreateInfo viewport{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    viewport.viewportCount = 1;
+    viewport.scissorCount = 1;
+    VkPipelineRasterizationStateCreateInfo raster{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    raster.polygonMode = VK_POLYGON_MODE_FILL;
+    raster.cullMode = VK_CULL_MODE_NONE;
+    raster.lineWidth = 1.0f;
+    VkPipelineMultisampleStateCreateInfo multisample{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkPipelineColorBlendAttachmentState blendAttachment{};
+    blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    VkPipelineColorBlendStateCreateInfo blend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+    blend.attachmentCount = 1;
+    blend.pAttachments = &blendAttachment;
+    const VkDynamicState dynamicStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamic{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    dynamic.dynamicStateCount = 2;
+    dynamic.pDynamicStates = dynamicStates;
+    VkPipelineRenderingCreateInfo rendering{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    rendering.colorAttachmentCount = 1;
+    rendering.pColorAttachmentFormats = &colorFormat_;
+    VkGraphicsPipelineCreateInfo gpi{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    gpi.pNext = &rendering;
+    gpi.stageCount = 2;
+    gpi.pStages = stages;
+    gpi.pVertexInputState = &vertexInput;
+    gpi.pInputAssemblyState = &assembly;
+    gpi.pViewportState = &viewport;
+    gpi.pRasterizationState = &raster;
+    gpi.pMultisampleState = &multisample;
+    gpi.pColorBlendState = &blend;
+    gpi.pDynamicState = &dynamic;
+    gpi.layout = outputLayout_;
+    const VkResult created = vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &gpi, nullptr, &outputPipeline_);
+    vkDestroyShaderModule(device_, vs, nullptr);
+    vkDestroyShaderModule(device_, fs, nullptr);
+    Check(created, "vkCreateGraphicsPipelines(present)");
+    outputPipelineFormat_ = colorFormat_;
+}
+
+void VkSceneRenderer::DestroyOutputPipeline() {
+    if (outputPipeline_) vkDestroyPipeline(device_, outputPipeline_, nullptr);
+    if (outputLayout_) vkDestroyPipelineLayout(device_, outputLayout_, nullptr);
+    if (outputPool_) vkDestroyDescriptorPool(device_, outputPool_, nullptr); // frees outputSet_
+    if (outputSetLayout_) vkDestroyDescriptorSetLayout(device_, outputSetLayout_, nullptr);
+    if (outputSampler_) vkDestroySampler(device_, outputSampler_, nullptr);
+    outputPipeline_ = VK_NULL_HANDLE;
+    outputLayout_ = VK_NULL_HANDLE;
+    outputPool_ = VK_NULL_HANDLE;
+    outputSet_ = VK_NULL_HANDLE;
+    outputSetLayout_ = VK_NULL_HANDLE;
+    outputSampler_ = VK_NULL_HANDLE;
+    outputPipelineFormat_ = VK_FORMAT_UNDEFINED;
+}
+
+void VkSceneRenderer::RecordOutputPass(uint32_t imageIndex, VkImageLayout layout, VkAccessFlags access, VkPipelineStageFlags stage) {
+    Transition(cmd_, output_.image, VK_IMAGE_ASPECT_COLOR_BIT, layout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, access, VK_ACCESS_SHADER_READ_BIT,
+               stage, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    Transition(cmd_, images_[imageIndex], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0,
+               VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+    VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    color.imageView = views_[imageIndex];
+    color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; // the borders
+    color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    color.clearValue.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+    VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+    ri.renderArea = {{0, 0}, swapExtent_};
+    ri.layerCount = 1;
+    ri.colorAttachmentCount = 1;
+    ri.pColorAttachments = &color;
+    cmdBeginRendering_(cmd_, &ri);
+    struct {
+        int32_t origin[2], size[2];
+        int32_t mode;
+        float sharpen, lines, unused;
+    } push{{int32_t((swapExtent_.width - extent_.width) / 2), int32_t((swapExtent_.height - extent_.height) / 2)},
+           {int32_t(extent_.width), int32_t(extent_.height)}, int32_t(options_.screenFilter), float(options_.sharpen) / 100.0f, 240.0f, 0.0f};
+    static_assert(sizeof(push) == 32, "present.frag's push constants");
+    const VkViewport viewport{float(push.origin[0]), float(push.origin[1]), float(extent_.width), float(extent_.height), 0.0f, 1.0f};
+    const VkRect2D scissor{{push.origin[0], push.origin[1]}, extent_};
+    vkCmdSetViewport(cmd_, 0, 1, &viewport);
+    vkCmdSetScissor(cmd_, 0, 1, &scissor);
+    vkCmdBindPipeline(cmd_, VK_PIPELINE_BIND_POINT_GRAPHICS, outputPipeline_);
+    vkCmdBindDescriptorSets(cmd_, VK_PIPELINE_BIND_POINT_GRAPHICS, outputLayout_, 0, 1, &outputSet_, 0, nullptr);
+    vkCmdPushConstants(cmd_, outputLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
+    vkCmdDraw(cmd_, 3, 1, 0, 0);
+    cmdEndRendering_(cmd_);
+}
+
 void VkSceneRenderer::DestroySwapchain() {
     DestroySceneTargets();
+    if (output_.image) DestroyImage(output_);
+    output_ = {};
+    outputActive_ = false;
     if (offscreen_) DestroyImage(offscreenTarget_); // views_[0] is its view
     else
         for (VkImageView v : views_) vkDestroyImageView(device_, v, nullptr);
@@ -967,7 +1157,7 @@ void VkSceneRenderer::Draw(const std::vector<DrawItem>& items, const std::string
     // Wayland's WSI never reports OUT_OF_DATE/SUBOPTIMAL on resize, so compare the window ourselves.
     VkExtent2D drawable{};
     if (swapchain_ && extentFromWindow_ && context_.WindowExtent(drawable) && drawable.width && drawable.height &&
-        (drawable.width != extent_.width || drawable.height != extent_.height)) {
+        (drawable.width != swapExtent_.width || drawable.height != swapExtent_.height)) {
         vkDeviceWaitIdle(device_);
         DestroySwapchain();
     }
@@ -1034,7 +1224,7 @@ void VkSceneRenderer::Draw(const std::vector<DrawItem>& items, const std::string
     if (sceneItems > 0 && sceneTargets_) {
         DrawScenePass(items, sceneItems, imageIndex);
     } else {
-        Transition(cmd_, images_[imageIndex], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+        Transition(cmd_, TargetImage(imageIndex), VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
                    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
         Transition(cmd_, depthImage_, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
@@ -1050,7 +1240,7 @@ void VkSceneRenderer::Draw(const std::vector<DrawItem>& items, const std::string
 // The window's target: the swapchain image `imageIndex` and the window's depth buffer.
 RenderTarget VkSceneRenderer::WindowTarget(uint32_t imageIndex) const {
     RenderTarget target;
-    target.colorView = views_[imageIndex];
+    target.colorView = outputActive_ ? output_.view : views_[imageIndex];
     target.colorFormat = colorFormat_;
     target.depthView = depthView_;
     target.depthFormat = kDepthFormat;
@@ -1666,7 +1856,7 @@ void VkSceneRenderer::DrawScenePass(const std::vector<DrawItem>& items, size_t s
 
     Transition(cmd_, sceneColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-    Transition(cmd_, images_[imageIndex], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+    Transition(cmd_, TargetImage(imageIndex), VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
                VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
     VkImageBlit blit{};
     blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
@@ -1674,9 +1864,9 @@ void VkSceneRenderer::DrawScenePass(const std::vector<DrawItem>& items, size_t s
     blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     blit.dstOffsets[1] = {int32_t(extent_.width), int32_t(extent_.height), 1};
     const bool same = sceneExtent_.width == extent_.width && sceneExtent_.height == extent_.height;
-    vkCmdBlitImage(cmd_, sceneColor_.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, images_[imageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
+    vkCmdBlitImage(cmd_, sceneColor_.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, TargetImage(imageIndex), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
                    (!same && blitLinear_) ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
-    Transition(cmd_, images_[imageIndex], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    Transition(cmd_, TargetImage(imageIndex), VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
     Transition(cmd_, depthImage_, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 0,
@@ -1691,16 +1881,22 @@ void VkSceneRenderer::FinishFrame(uint32_t imageIndex, const std::string& screen
     VkImageLayout layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     VkAccessFlags access = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
     VkPipelineStageFlags stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    if (capture) {
-        Transition(cmd_, images_[imageIndex], VK_IMAGE_ASPECT_COLOR_BIT, layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    if (capture) { // the frame as the game drew it (output_ when the present stage is on)
+        Transition(cmd_, TargetImage(imageIndex), VK_IMAGE_ASPECT_COLOR_BIT, layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                    access, VK_ACCESS_TRANSFER_READ_BIT, stage, VK_PIPELINE_STAGE_TRANSFER_BIT);
         VkBufferImageCopy region{};
         region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         region.imageExtent = {extent_.width, extent_.height, 1};
-        vkCmdCopyImageToBuffer(cmd_, images_[imageIndex], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback_.buffer, 1, &region);
+        vkCmdCopyImageToBuffer(cmd_, TargetImage(imageIndex), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback_.buffer, 1, &region);
         layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
         access = VK_ACCESS_TRANSFER_READ_BIT;
         stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    }
+    if (outputActive_) {
+        RecordOutputPass(imageIndex, layout, access, stage);
+        layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        access = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     }
     // The XR path has no presentation: the frame is left ready to be copied into the compositor's swapchain image.
     Transition(cmd_, images_[imageIndex], VK_IMAGE_ASPECT_COLOR_BIT, layout,
@@ -1737,7 +1933,7 @@ void VkSceneRenderer::FinishFrame(uint32_t imageIndex, const std::string& screen
     VkResult pres = vkQueuePresentKHR(queue_, &pi);
     VkExtent2D drawable{};
     const bool resized = pres == VK_SUBOPTIMAL_KHR && context_.WindowExtent(drawable) && drawable.width && drawable.height &&
-                         (drawable.width != extent_.width || drawable.height != extent_.height);
+                         (drawable.width != swapExtent_.width || drawable.height != swapExtent_.height);
     // SUBOPTIMAL is still a successful presentation. Cocoa can report it while
     // entering fullscreen without changing the drawable; avoid rebuilding every frame.
     // SURFACE_LOST: Android abandoned the window before the backend detached it; the backend attaches the new one.

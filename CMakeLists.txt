@@ -346,7 +346,7 @@ if(Vulkan_FOUND AND Vulkan_glslc_FOUND AND WIN32)
   set(GT2VK_SHADER_DIR ${CMAKE_CURRENT_BINARY_DIR}/shaders)
   file(MAKE_DIRECTORY ${GT2VK_SHADER_DIR})
   set(GT2VK_SHADER_OUTPUTS)
-  foreach(shader scene.vert scene_environment.vert scene.frag scene_cached.frag scene_cached_blend.frag scene_model.frag scene_model_diffuse.frag scene_model_glass.frag scene_ui.frag)
+  foreach(shader scene.vert scene_environment.vert scene.frag scene_cached.frag scene_cached_blend.frag scene_model.frag scene_model_diffuse.frag scene_model_glass.frag scene_ui.frag present.vert present.frag)
     set(src ${CMAKE_CURRENT_SOURCE_DIR}/src/gt2view/shaders/${shader})
     set(out ${GT2VK_SHADER_DIR}/${shader}.inc)
     add_custom_command(OUTPUT ${out}

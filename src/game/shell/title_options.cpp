@@ -128,6 +128,9 @@ bool GraphicsSettings::Parse(const std::string& key, const std::string& value) {
     else if (key == "texture_mapping") affine = value == "affine";
     else if (key == "scenery_detail") maxDetail = value == "max";
     else if (key == "draw_distance") drawDistance = value == "all" ? -1 : value == "original" ? 0 : clamp(v, 0, 100000);
+    else if (key == "aspect") aspect = value == "16:9" ? 1 : value == "4:3" ? 2 : 0;
+    else if (key == "screen_filter") screenFilter = value == "scanlines" ? 1 : value == "crt" ? 2 : 0;
+    else if (key == "sharpen") sharpen = clamp(v, 0, 100);
     else return false;
     return true;
 }
@@ -150,6 +153,9 @@ std::string GraphicsSettings::Serialize() const {
     else if (drawDistance == 0) o << "original";
     else o << drawDistance;
     o << "\n";
+    o << "aspect=" << (aspect == 1 ? "16:9" : aspect == 2 ? "4:3" : "fill") << "\n";
+    o << "screen_filter=" << (screenFilter == 1 ? "scanlines" : screenFilter == 2 ? "crt" : "off") << "\n";
+    o << "sharpen=" << sharpen << "\n";
     return o.str();
 }
 

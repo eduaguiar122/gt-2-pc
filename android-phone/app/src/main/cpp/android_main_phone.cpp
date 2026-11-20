@@ -93,11 +93,19 @@ float Axis(const AInputEvent* event, int32_t axis) { return AMotionEvent_getAxis
 
 int32_t Input(android_app*, AInputEvent* event) {
     if (AInputEvent_getType(event) == AINPUT_EVENT_TYPE_KEY) {
-        const int code = AKeyEvent_getKeyCode(event);
+        int code = AKeyEvent_getKeyCode(event);
         // System keys stay with Android: volume (and its overlay), power, assistant.
         if (code == AKEYCODE_VOLUME_UP || code == AKEYCODE_VOLUME_DOWN || code == AKEYCODE_VOLUME_MUTE ||
             code == AKEYCODE_POWER || code == AKEYCODE_HOME || code == AKEYCODE_ASSIST)
             return 0;
+        if (code == AKEYCODE_BACK) {
+            // Many Android pads send BACK for their Select / View button: it is the pad's Select there (so that
+            // Start + Select opens the settings). The phone's own back gesture opens and closes the settings menu.
+            const int32_t source = AInputEvent_getSource(event);
+            const bool pad = (source & AINPUT_SOURCE_GAMEPAD) == AINPUT_SOURCE_GAMEPAD ||
+                             (source & AINPUT_SOURCE_JOYSTICK) == AINPUT_SOURCE_JOYSTICK;
+            code = pad ? AKEYCODE_BUTTON_SELECT : AKEYCODE_F10;
+        }
         const int32_t action = AKeyEvent_getAction(event);
         if (action == AKEY_EVENT_ACTION_MULTIPLE) return 1;
         gt2game::android::KeyEvent(code, action == AKEY_EVENT_ACTION_DOWN);

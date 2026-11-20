@@ -184,6 +184,16 @@ private:
     void BeginTargetRendering(const RenderTarget& target, VkAttachmentLoadOp colorLoad);
     void DrawScenePass(const std::vector<DrawItem>& items, size_t sceneItems, uint32_t imageIndex);
     void FinishFrame(uint32_t imageIndex, const std::string& screenshotPath); // capture, present
+    // The present stage (RenderOptions aspect / screenFilter / sharpen; flat window only). Off: the frame is drawn
+    // straight into the swapchain image, as before. On: extent_ is the chosen aspect fitted into the window
+    // (swapExtent_), the frame is drawn into output_, and RecordOutputPass puts it into the swapchain image centred on
+    // black through present.frag. Everything that draws the frame sees only extent_ and TargetImage / WindowTarget.
+    bool OutputWanted() const { return !offscreen_ && (options_.aspect || options_.screenFilter || options_.sharpen); }
+    VkImage TargetImage(uint32_t imageIndex) const { return outputActive_ ? output_.image : images_[imageIndex]; }
+    void CreateOutputPipeline();
+    void DestroyOutputPipeline();
+    // Reads output_ (currently in `layout`, last written at `stage` / `access`) into the swapchain image.
+    void RecordOutputPass(uint32_t imageIndex, VkImageLayout layout, VkAccessFlags access, VkPipelineStageFlags stage);
     Buffer CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage);
     void DestroyBuffer(Buffer& b);
     uint32_t FindMemoryType(uint32_t typeBits, VkMemoryPropertyFlags flags) const;
@@ -276,6 +286,17 @@ private:
     bool paintPending_=true,paintCourseInitialized_=false;
     void UploadPaintEnvironment();
     bool sceneTargets_ = false;
+    // The present stage (OutputWanted).
+    VkExtent2D swapExtent_{}; // the swapchain's own size (extent_ is the frame's)
+    Image output_;
+    bool outputActive_ = false;
+    VkFormat outputPipelineFormat_ = VK_FORMAT_UNDEFINED;
+    VkDescriptorSetLayout outputSetLayout_ = VK_NULL_HANDLE;
+    VkDescriptorPool outputPool_ = VK_NULL_HANDLE;
+    VkDescriptorSet outputSet_ = VK_NULL_HANDLE;
+    VkPipelineLayout outputLayout_ = VK_NULL_HANDLE;
+    VkPipeline outputPipeline_ = VK_NULL_HANDLE;
+    VkSampler outputSampler_ = VK_NULL_HANDLE;
     // Offscreen mode (the XR path): the one colour image the frames are recorded into (also images_[0] / views_[0]).
     bool offscreen_ = false;
     Image offscreenTarget_;

@@ -65,7 +65,7 @@ HostState& Host() {
 int GameKey(int32_t androidKeyCode) {
     namespace keys = gt2::keys;
     switch (androidKeyCode) {
-    case 4: return keys::kEscape;  // AKEYCODE_BACK: the system back gesture / button pauses and leaves menus
+    case 4: return keys::kEscape;  // AKEYCODE_BACK (android_main_phone.cpp turns it into Select or F10 first)
     case 19: return keys::kUp;     // AKEYCODE_DPAD_UP
     case 20: return keys::kDown;   // AKEYCODE_DPAD_DOWN
     case 21: return keys::kLeft;   // AKEYCODE_DPAD_LEFT

@@ -4,7 +4,7 @@
     <string name="import_short">Import disc</string>
     <string name="import_long">Import a game disc</string>
     <string name="import_title">Gran Turismo 2: install a disc</string>
-    <string name="import_help">Select your own disc image: a complete .bin with 2352-byte sectors (the file next to the .cue). Arcade, Simulation and the combined disc are supported. The image is copied into the app; game data is never included or downloaded.\n\nPlay with a Bluetooth or USB controller. Start + Select (or holding Start) opens the settings.</string>
+    <string name="import_help">Select your own disc image: a complete .bin with 2352-byte sectors (the file next to the .cue). Arcade, Simulation and the combined disc are supported. The image is copied into the app; game data is never included or downloaded.\n\nPlay with a Bluetooth or USB controller. Start + Select, holding Start or the phone\'s back gesture opens the settings (Graphics and performance → Screen and image for aspect ratio, CRT filter and sharpening).</string>
     <string name="import_none">No disc installed yet.</string>
     <string name="import_installed">Installed:\n%1$s</string>
     <string name="import_pick">Select disc image (.bin)</string>

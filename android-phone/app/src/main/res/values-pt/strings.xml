@@ -3,7 +3,7 @@
     <string name="import_short">Importar disco</string>
     <string name="import_long">Importar um disco do jogo</string>
     <string name="import_title">Gran Turismo 2: instalar disco</string>
-    <string name="import_help">Selecione a sua própria imagem do disco: um .bin completo com setores de 2352 bytes (o arquivo ao lado do .cue). Arcade, Simulation e o disco combinado são aceitos. A imagem é copiada para o app; nenhum dado do jogo vem junto ou é baixado.\n\nJogue com controle Bluetooth ou USB. Start + Select (ou segurar Start) abre as configurações.</string>
+    <string name="import_help">Selecione a sua própria imagem do disco: um .bin completo com setores de 2352 bytes (o arquivo ao lado do .cue). Arcade, Simulation e o disco combinado são aceitos. A imagem é copiada para o app; nenhum dado do jogo vem junto ou é baixado.\n\nJogue com controle Bluetooth ou USB. Start + Select, segurar Start ou o gesto de voltar do celular abre as configurações (Graphics and performance → Screen and image para proporção, filtro CRT e nitidez).</string>
     <string name="import_none">Nenhum disco instalado.</string>
     <string name="import_installed">Instalados:\n%1$s</string>
     <string name="import_pick">Selecionar imagem do disco (.bin)</string>

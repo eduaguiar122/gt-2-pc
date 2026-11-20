@@ -106,6 +106,10 @@ struct GraphicsSettings {
     bool maxDetail = false;                // every scenery instance at LOD 0 without the distance cut-off
     int drawDistance = 0;                  // 0: the course's render lists (original); N > 0: nothing beyond N m draws;
                                            // -1: every chunk of the course
+    // The output of the whole frame, as an emulator's (gt2view::RenderOptions; flat window only).
+    int aspect = 0;                        // 0: fill the window; 1: 16:9; 2: 4:3
+    int screenFilter = 0;                  // 0: off; 1: scanlines; 2: CRT
+    int sharpen = 0;                       // 0 (off), 25, 50, 75, 100
     static GraphicsSettings Vanilla() {
         GraphicsSettings g;
         g.frameRate = kFrameRateOriginal;

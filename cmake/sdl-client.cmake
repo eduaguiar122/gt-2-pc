@@ -3,7 +3,7 @@ set(GT2_GLSLC ${Vulkan_GLSLC_EXECUTABLE})
 set(GT2VK_SHADER_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
 file(MAKE_DIRECTORY "${GT2VK_SHADER_DIR}")
 set(GT2VK_SHADER_OUTPUTS)
-foreach(shader scene.vert scene_environment.vert scene.frag scene_cached.frag scene_cached_blend.frag scene_model.frag scene_model_diffuse.frag scene_model_glass.frag scene_ui.frag)
+foreach(shader scene.vert scene_environment.vert scene.frag scene_cached.frag scene_cached_blend.frag scene_model.frag scene_model_diffuse.frag scene_model_glass.frag scene_ui.frag present.vert present.frag)
   set(out "${GT2VK_SHADER_DIR}/${shader}.inc")
   add_custom_command(OUTPUT "${out}"
     COMMAND Vulkan::glslc -O -mfmt=c -o "${out}" "${CMAKE_CURRENT_SOURCE_DIR}/src/gt2view/shaders/${shader}"

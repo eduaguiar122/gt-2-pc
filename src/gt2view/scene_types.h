@@ -197,6 +197,11 @@ struct RenderOptions {
                                  // rectangle, STP class kept); false = the PS1's nearest texel (exact)
     bool affine = false;         // screen-linear (PS1 GPU) texture / colour interpolation; false = perspective-correct
     bool vsync = true;           // FIFO presentation; false = MAILBOX (or IMMEDIATE when the surface has no MAILBOX)
+    // The present stage (flat window only; all zero = the frame goes straight into the window as before). Unlike the
+    // options above they apply to the whole frame, HUD and menus included, like an emulator's output settings.
+    uint8_t aspect = 0;          // 0: fill the window; 1: 16:9; 2: 4:3 (black borders around the frame)
+    uint8_t screenFilter = 0;    // 0: off; 1: scanlines; 2: CRT (scanlines + aperture-grille mask)
+    uint8_t sharpen = 0;         // 0 (off) .. 100: contrast-adaptive sharpening of the finished frame
     bool operator==(const RenderOptions&) const = default;
 };
 

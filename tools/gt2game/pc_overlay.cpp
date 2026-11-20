@@ -1135,6 +1135,18 @@ void ShowSettingsMenu(GameWindow& window) {
             rows[0] = "Resolution: " + (graphics.renderHeight ? std::to_string(graphics.renderHeight) + "p" : std::to_string(graphics.renderScale) + "%");
             rows[1] = "Frame limit: " + (graphics.frameCap ? std::to_string(graphics.frameCap) + " FPS" : std::string("Display"));
             rows[6] = "Display timing...";
+            rows.insert(rows.end() - 1, "Screen and image..."); // row 8; Back is row 9 on the flat screen
+        }
+        if (page == 15) {
+            title = "GT2 / SCREEN AND IMAGE";
+            const char* aspects[] = {"Fill screen", "16:9", "4:3"};
+            const char* filters[] = {"Off", "Scanlines", "CRT"};
+            rows = {std::string("Aspect ratio: ") + aspects[std::clamp(graphics.aspect, 0, 2)],
+                    std::string("Screen filter: ") + filters[std::clamp(graphics.screenFilter, 0, 2)],
+                    "Sharpening: " + (graphics.sharpen ? std::to_string(graphics.sharpen) + "%" : std::string("Off")),
+                    std::string("Texture mapping: ") + (graphics.affine ? "PS1 (affine wobble)" : "Perspective-correct"),
+                    std::string("Scenery detail: ") + (graphics.maxDetail ? "Maximum" : "Original"),
+                    "Back"};
         }
         if (page == 8) {
             title = "GT2 / DISPLAY TIMING";
@@ -1232,8 +1244,8 @@ void ShowSettingsMenu(GameWindow& window) {
             if (window.Pressed(gt2::keys::kBack) || window.Pressed(gt2::keys::kEscape) || (!vr && window.PadPressed(gt2::input::ps1::kCircle))) {
                 if (page == 0) break;
                 const int from = page;
-                page = page == 3 ? 2 : page == 8 ? 1 : (page == 5 || page == 7 || page == 14) ? 6 : (page == 9 || page == 11) ? 13 : 0;
-                selected = from == 14 ? 4 : from == 13 ? kMainContent : from == 9 ? 0 : from == 11 ? 1 : from == 12 ? kMainQuit : 0;
+                page = page == 3 ? 2 : (page == 8 || page == 15) ? 1 : (page == 5 || page == 7 || page == 14) ? 6 : (page == 9 || page == 11) ? 13 : 0;
+                selected = from == 15 ? 8 : from == 14 ? 4 : from == 13 ? kMainContent : from == 9 ? 0 : from == 11 ? 1 : from == 12 ? kMainQuit : 0;
                 continue;
             }
             const int count = int(rows.size());
@@ -1297,7 +1309,7 @@ void ShowSettingsMenu(GameWindow& window) {
                         window.Close(); done = true;
                     } else { page = 13; selected = 0; }
                 }
-                else if (page == 1 && (direction || selected == 8 || (!vr && selected == 6 && accept))) {
+                else if (page == 1 && (direction || selected == (vr ? 8 : 9) || (!vr && (selected == 6 || selected == 8) && accept))) {
                     const int samples[] = {1,2,4,8}, distances[] = {0,250,500,1000,2000,-1};
                     const std::string prior = status;
                     const auto before = std::make_tuple(graphics, rumble, profiler, playStationIntro, gt4ModelSet, gt2::hd::Enabled(), vrScale, vrRefresh, foveation);
@@ -1328,7 +1340,8 @@ void ShowSettingsMenu(GameWindow& window) {
                     if (selected == 5) profiler = !profiler;
                     if (vr && selected == 6) { foveation = (foveation + direction + 4) % 4; window.Renderer().SetFoveation(foveation); status = "Saved. Centre and HUD stay full resolution."; }
                     if (!vr && selected == 6 && accept) { page = 8; selected = 0; }
-                    else if (selected == 8) { page = 0; selected = 0; }
+                    else if (!vr && selected == 8 && accept) { page = 15; selected = 0; status = "Applies to the whole picture, menus included."; }
+                    else if (selected == (vr ? 8 : 9)) { page = 0; selected = 0; }
                     if (page==1 && selected==7 && direction) {
                         if (!graphics.carReflections) { graphics.carReflections = true; graphics.modernCarReflections = false; }
                         else if (!graphics.modernCarReflections) graphics.modernCarReflections = true;
@@ -1353,6 +1366,22 @@ void ShowSettingsMenu(GameWindow& window) {
                     if (before != after) {
                         if (status == prior) status = "Saved.";
                     } else if (status == prior) {
+                        status = neutralStatus;
+                    }
+                } else if (page == 15) { // the flat screen's output, as an emulator's (RenderOptions aspect / screenFilter / sharpen)
+                    const std::string prior = status;
+                    const auto before = graphics;
+                    const int sharpenLevels[] = {0, 25, 50, 75, 100};
+                    if (selected == 0) graphics.aspect = (graphics.aspect + direction + 3) % 3;
+                    if (selected == 1) graphics.screenFilter = (graphics.screenFilter + direction + 3) % 3;
+                    if (selected == 2) graphics.sharpen = Cycle(graphics.sharpen, sharpenLevels, direction);
+                    if (selected == 3) graphics.affine = !graphics.affine;
+                    if (selected == 4) graphics.maxDetail = !graphics.maxDetail;
+                    if (selected == 5) { page = 1; selected = 8; }
+                    SetGraphicsFromOverlay(graphics); window.Renderer().SetOptions(RenderOptionsOf(CurrentGraphics()));
+                    if (!(before == graphics)) {
+                        if (status == prior) status = "Saved.";
+                    } else if (status == prior && page == 15) {
                         status = neutralStatus;
                     }
                 } else if (page == 2) {
